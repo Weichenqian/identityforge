@@ -1,0 +1,575 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>Koe·身份锻造系统 | Identity Forge</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { background: #0b0d12; font-family: -apple-system, BlinkMacSystemFont, 'Inter', sans-serif; color: #eef2ff; padding: 20px 16px 64px; line-height: 1.5; }
+        .container { max-width: 860px; margin: 0 auto; }
+        .lock-screen { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #0b0d12; display: flex; align-items: center; justify-content: center; z-index: 1000; backdrop-filter: blur(8px); }
+        .lock-card { background: rgba(14,18,24,0.98); border-radius: 2rem; padding: 2rem; max-width: 360px; text-align: center; border: 1px solid #2a3342; }
+        .card { background: rgba(14,18,24,0.96); border-radius: 2rem; padding: 1.5rem; margin-bottom: 1.5rem; border: 1px solid rgba(56,68,88,0.5); box-shadow: 0 20px 35px -12px rgba(0,0,0,0.5); }
+        h1 { font-size: 1.9rem; font-weight: 650; background: linear-gradient(135deg,#fff,#9aa9bf); -webkit-background-clip: text; background-clip: text; color: transparent; margin-bottom: 0.5rem; }
+        h2 { font-size: 1.4rem; font-weight: 600; margin: 0.5rem 0 0.8rem; }
+        .badge { background: #1e293b; color: #94a3b8; padding: 4px 12px; border-radius: 30px; font-size: 0.7rem; display: inline-block; margin-bottom: 1rem; }
+        button { background: #3b82f6; border: none; padding: 10px 18px; border-radius: 40px; font-weight: 500; color: white; cursor: pointer; font-family: inherit; transition: 0.1s; font-size: 0.9rem; }
+        button.secondary { background: #252f3c; border: 1px solid #3a4455; }
+        button.small { font-size: 0.75rem; padding: 6px 12px; }
+        button:disabled { opacity: 0.6; cursor: not-allowed; }
+        .flex-btns { display: flex; gap: 12px; flex-wrap: wrap; justify-content: space-between; margin-top: 1.5rem; }
+        .progress-step { display: flex; gap: 10px; justify-content: center; margin-bottom: 1.5rem; }
+        .step-dot { width: 8px; height: 8px; background: #2c3e4e; border-radius: 10px; transition: 0.2s; }
+        .step-dot.active { background: #3b82f6; width: 26px; }
+        input, textarea, select { width: 100%; background: #0f141c; border: 1px solid #2a3342; border-radius: 1.2rem; padding: 0.75rem 1rem; color: #f1f5f9; font-family: inherit; margin: 0.4rem 0; }
+        .field-hint { font-size: 0.7rem; color: #8e9aaf; margin: 0.2rem 0 0.5rem 0; line-height: 1.4; }
+        .identity-tag { background: #111a24; border: 1px solid #2c3e50; padding: 4px 14px; border-radius: 40px; display: inline-block; margin: 0.2rem 0.4rem; font-size: 0.85rem; cursor: pointer; }
+        .action-card { background: #0b1016; border-radius: 1.2rem; padding: 1rem; margin: 1rem 0; border-left: 3px solid #3b82f6; }
+        .calendar { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; margin: 1rem 0; }
+        .cal-day { aspect-ratio: 1; background: #1a1f2a; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 0.7rem; font-weight: 500; }
+        .cal-day.align-high { background: #3b82f6; color: white; }
+        .cal-day.align-mid { background: #5a6e8c; }
+        .cal-day.align-low { background: #4a2a3a; }
+        canvas { max-width: 100%; margin: 1rem 0; background: #0f141c; border-radius: 1rem; padding: 0.5rem; }
+        .privacy-note { font-size: 0.7rem; color: #6a7a8e; text-align: center; margin-top: 2rem; }
+        .cred, .author-info { background: #0a0e14; border-radius: 1rem; padding: 1rem; margin-bottom: 1.5rem; font-size: 0.85rem; }
+        .cred { border-left: 3px solid #3b82f6; }
+        .author-info { border-left: 3px solid #f97316; }
+        .en-quote { font-size: 0.75rem; color: #9aa9bf; margin-top: 0.25rem; font-style: italic; }
+        .example-btn { background: none; border: 1px solid #3b82f6; color: #3b82f6; padding: 2px 8px; font-size: 0.7rem; margin-left: 8px; cursor: pointer; border-radius: 20px; }
+        @media (max-width: 600px) { .card { padding: 1rem; } button { padding: 8px 14px; } }
+    </style>
+</head>
+<body>
+<div id="lockContainer"></div>
+<div id="appContainer" style="display:none;"></div>
+
+<script>
+    // ======================= 配置（仅需修改密码） =======================
+    const ACCESS_PASSWORD = "YOUR_SECRET_PASSWORD";   // 改成你要销售的密码
+    const AUTHOR_INFO = {
+        name: "Alex Wei",
+        bio: "独立开发者，Dan Koe 理念践行者，已帮助 300+ 用户建立身份操作系统。",
+        contact: "微信：weichenqian1127 | 邮箱：54328224@qq.com"
+    };
+    const DAN_KOE_CRED = {
+        title: "🧠 关于 Dan Koe | About Dan Koe",
+        content: "20多岁实现年收入数百万美元，每天只工作2-4小时。他是「一人公司」理念的顶级实践者，畅销书《专注的艺术》作者。全球超过500万人受到他的影响。",
+        en: "In his 20s, he built a multi-million dollar business while working only 2-4 hours a day."
+    };
+    
+    // 后端代理地址（Vercel 部署后自动生效）
+    const API_PROXY = "/api/proxy";
+    
+    // ======================= 全局状态 =======================
+    let step = 1;
+    let user = {
+        idealIdentity: "", idealTags: [], antiVision: "", badActions: [], creativeActions: [], dailyLogs: [],
+        settings: { enableNotifications: false, fastMode: false }
+    };
+    let today = new Date().toISOString().slice(0,10);
+    let notificationPermission = false;
+    let isAuthenticated = false;
+    let inviteCode = null, referredBy = null;
+    const STORAGE_KEY = "identity_forge_pro";
+    
+    function persist() {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify({ step, user, today, inviteCode, referredBy }));
+    }
+    
+    function loadStorage() {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (raw) {
+            try {
+                const data = JSON.parse(raw);
+                step = data.step || 1;
+                user = data.user || { idealIdentity: "", idealTags: [], antiVision: "", badActions: [], creativeActions: [], dailyLogs: [], settings: { enableNotifications: false, fastMode: false } };
+                today = data.today || new Date().toISOString().slice(0,10);
+                inviteCode = data.inviteCode || null;
+                referredBy = data.referredBy || null;
+                if (!user.settings) user.settings = { enableNotifications: false, fastMode: false };
+                if (!user.badActions.map) user.badActions = [];
+                if (!user.dailyLogs) user.dailyLogs = [];
+            } catch(e) {}
+        }
+        if (!inviteCode) inviteCode = generateInviteCode();
+        persist();
+    }
+    
+    function generateInviteCode() {
+        return 'INV' + Math.random().toString(36).substring(2,8).toUpperCase();
+    }
+    
+    function checkAuth() {
+        if (isAuthenticated) return true;
+        if (sessionStorage.getItem("paid") === "true") { isAuthenticated = true; return true; }
+        const trial = sessionStorage.getItem("trial_expiry");
+        if (trial && parseInt(trial) > Date.now()) { isAuthenticated = true; return true; }
+        return false;
+    }
+    
+    function applyTrial() {
+        const expiry = Date.now() + 3 * 24 * 3600 * 1000;
+        sessionStorage.setItem("trial_expiry", expiry);
+        isAuthenticated = true;
+        alert("🎉 试用已激活，3天内可免费使用所有功能！");
+        renderApp();
+    }
+    
+    function handleInvite() {
+        const urlParams = new URLSearchParams(window.location.search);
+        const code = urlParams.get('invite');
+        if (code && !referredBy) { referredBy = code; persist(); }
+    }
+    
+    function rewardInviter() {
+        if (!referredBy) return;
+        const rewardKey = `reward_${referredBy}`;
+        if (!localStorage.getItem(rewardKey)) {
+            localStorage.setItem(rewardKey, Date.now() + 3*24*3600*1000);
+            alert("🎁 感谢邀请！你的好友已成功使用系统，你获得3天免费试用延长！");
+        }
+        applyTrial();
+        referredBy = null;
+        persist();
+    }
+    
+    // AI 调用（通过 Vercel 代理）
+    async function callAI(prompt) {
+        try {
+            const res = await fetch(API_PROXY, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ prompt })
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || "调用失败");
+            return data.result;
+        } catch(e) {
+            console.error(e);
+            alert("AI 调用失败：" + e.message);
+            return null;
+        }
+    }
+    
+    async function generatePersonalizedActions() {
+        if (!user.idealIdentity) { alert("请先完成第一步：定义理想身份"); return; }
+        const prompt = `你是一位Dan Koe方法论教练。用户理想身份：「${user.idealIdentity}」，标签：${user.idealTags.join(", ")}。反愿景：「${user.antiVision||"无"}」。坏行为：${user.badActions.map(b=>b.text).join("、")||"无"}。给出5条非常具体、可执行的「创造行动」建议，每条不超过30字，每条换行。只输出建议列表，不要解释。`;
+        return await callAI(prompt);
+    }
+    
+    async function generateWeeklyInsight(logs) {
+        if (logs.length === 0) return null;
+        const avg = logs.reduce((s,l)=>s+l.alignment,0)/logs.length;
+        const total = logs.reduce((s,l)=>s+(l.doneIndices?.length||0),0);
+        const prompt = `过去7天用户身份对齐度平均 ${avg.toFixed(1)}/5。完成的创造行动次数：${total}。他的理想身份：「${user.idealIdentity}」。反愿景：「${user.antiVision||"无"}」。请给出一段简洁的鼓励+改进建议（中文，100字以内）。然后基于此，为他生成下周的3个“微承诺”（每条10字左右）。输出格式：建议：... 承诺：1. ... 2. ... 3. ...`;
+        return await callAI(prompt);
+    }
+    
+    // 渲染锁屏
+    function renderLockScreen() {
+        const container = document.getElementById("lockContainer");
+        container.innerHTML = `
+            <div class="lock-screen">
+                <div class="lock-card">
+                    <h2>🔐 Koe·身份锻造系统</h2>
+                    <p style="margin: 1rem 0;">购买密码后永久解锁全功能</p>
+                    <input type="password" id="passwordInput" placeholder="密码">
+                    <button id="unlockBtn" style="margin-top: 1rem;">解锁</button>
+                    <button id="trialBtn" class="secondary" style="margin-top: 0.5rem;">📅 申请3天免费试用</button>
+                    <div class="privacy-note" style="margin-top: 1rem;">联系作者购买：${AUTHOR_INFO.contact}</div>
+                </div>
+            </div>
+        `;
+        document.getElementById("unlockBtn")?.addEventListener("click", () => {
+            if (document.getElementById("passwordInput").value === ACCESS_PASSWORD) {
+                sessionStorage.setItem("paid", "true");
+                isAuthenticated = true;
+                document.getElementById("lockContainer").style.display = "none";
+                document.getElementById("appContainer").style.display = "block";
+                loadStorage();
+                renderApp();
+            } else { alert("密码错误"); }
+        });
+        document.getElementById("trialBtn")?.addEventListener("click", () => {
+            applyTrial();
+            document.getElementById("lockContainer").style.display = "none";
+            document.getElementById("appContainer").style.display = "block";
+            loadStorage();
+            renderApp();
+        });
+    }
+    
+    // 渲染可视化图表
+    function renderVisualization() {
+        const viz = document.getElementById("vizArea");
+        if (!viz) return;
+        let logs = [...user.dailyLogs].sort((a,b)=>a.date.localeCompare(b.date));
+        let last30 = logs.slice(-30);
+        let html = `<div class="calendar">`;
+        for (let d of last30) {
+            let cls = "cal-day";
+            if (d.alignment >= 4) cls += " align-high";
+            else if (d.alignment >= 2.5) cls += " align-mid";
+            else cls += " align-low";
+            html += `<div class="${cls}" title="${d.date} ${d.alignment}/5">${d.date.slice(5)}</div>`;
+        }
+        html += `</div><canvas id="alignChart" width="700" height="150" style="width:100%; height:auto;"></canvas>`;
+        viz.innerHTML = html;
+        const canvas = document.getElementById("alignChart");
+        if (canvas && logs.length > 1) {
+            const ctx = canvas.getContext("2d");
+            const w = canvas.clientWidth, h = canvas.clientHeight;
+            canvas.width = w; canvas.height = h;
+            ctx.clearRect(0,0,w,h);
+            ctx.strokeStyle = "#3b82f6";
+            ctx.lineWidth = 2;
+            const stepX = w / (logs.length-1);
+            let points = logs.map((l,i)=> ({x: i*stepX, y: h - (l.alignment/5)*h}));
+            ctx.beginPath();
+            points.forEach((p,i)=> { if(i===0) ctx.moveTo(p.x,p.y); else ctx.lineTo(p.x,p.y); });
+            ctx.stroke();
+        }
+    }
+    
+    // 生成分享卡片
+    async function generateShareCard() {
+        const logs = user.dailyLogs.slice(-7);
+        const avgAlign = logs.length ? (logs.reduce((s,l)=>s+l.alignment,0)/logs.length).toFixed(1) : "0";
+        const canvas = document.createElement('canvas');
+        canvas.width = 800; canvas.height = 600;
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = '#0b0d12';
+        ctx.fillRect(0,0,800,600);
+        ctx.fillStyle = '#ffffff';
+        ctx.font = 'bold 24px "Inter"';
+        ctx.fillText('Koe·身份锻造系统', 40, 60);
+        ctx.font = '16px "Inter"';
+        ctx.fillStyle = '#9aa9bf';
+        ctx.fillText(`本周身份对齐度：${avgAlign}/5`, 40, 110);
+        if (logs.length) {
+            const stepX = 700 / (logs.length-1);
+            ctx.beginPath();
+            ctx.strokeStyle = '#3b82f6';
+            ctx.lineWidth = 3;
+            logs.forEach((l,i)=> {
+                let x = 50 + i*stepX;
+                let y = 200 - (l.alignment/5)*120;
+                if(i===0) ctx.moveTo(x,y);
+                else ctx.lineTo(x,y);
+            });
+            ctx.stroke();
+        }
+        ctx.fillStyle = '#e2e8f0';
+        ctx.font = '14px "Inter"';
+        ctx.fillText(`"Identity drives behavior" — Dan Koe`, 40, 500);
+        ctx.fillStyle = '#6a7a8e';
+        ctx.fillText(`生成于 ${new Date().toLocaleString()}`, 40, 560);
+        return canvas;
+    }
+    
+    // 请求通知权限
+    function requestNotification() {
+        if (!("Notification" in window)) return;
+        if (Notification.permission === "granted") notificationPermission = true;
+        else if (Notification.permission !== "denied") Notification.requestPermission().then(perm => { if (perm === "granted") notificationPermission = true; });
+    }
+    
+    function escapeHtml(s) { return String(s).replace(/[&<>]/g, function(m){ if(m==='&') return '&amp;'; if(m==='<') return '&lt;'; if(m==='>') return '&gt;'; return m;}); }
+    
+    // 主应用渲染（继续第二部分）
+        // 主应用渲染
+    function renderApp() {
+        const app = document.getElementById("appContainer");
+        if (!app) return;
+        const hasAccess = checkAuth();
+        let html = `<div class="container">`;
+        html += `<div class="progress-step">${[1,2,3,4,5].map(i=>`<div class="step-dot ${step===i?'active':''}"></div>`).join('')}</div>`;
+        html += `<div style="text-align:right; margin-bottom:0.5rem;"><button id="settingsBtn" class="secondary" style="font-size:0.7rem;">⚙️ 设置</button></div>`;
+        html += `<div class="cred"><strong>${DAN_KOE_CRED.title}</strong><br>${DAN_KOE_CRED.content}<br><span class="en-quote">"${DAN_KOE_CRED.en}"</span></div>`;
+        html += `<div class="author-info"><strong>📌 关于本系统</strong><br>由 ${AUTHOR_INFO.name} 独立开发。${AUTHOR_INFO.bio}<br>🔒 所有数据本地存储，AI 通过安全代理调用。<br>联系作者：${AUTHOR_INFO.contact}</div>`;
+        
+        if (!hasAccess && step > 2) {
+            html += `<div class="card"><h2>🔒 付费功能</h2><p>步骤3-5以及AI生成、数据可视化需要购买密码或申请试用。</p><button id="buyNowBtn">购买密码 / 申请试用</button></div>`;
+            app.innerHTML = html;
+            document.getElementById("buyNowBtn")?.addEventListener("click", () => {
+                document.getElementById("lockContainer").style.display = "flex";
+                document.getElementById("appContainer").style.display = "none";
+            });
+            return;
+        }
+        
+        // 步骤1：理想身份（结构化）
+        if (step === 1) {
+            html += `<div class="card">
+                <h1>🎭 定义你的理想身份</h1>
+                <div class="badge">Dan Koe: "Identity drives behavior — not the other way around."</div>
+                <div class="field-hint">✍️ 下面三个问题帮你构建理想身份，至少填写一项。越具体越好。</div>
+                <div>1. 你想在职业/事业上成为谁？<button class="example-btn" data-field="career">📋 示例</button></div>
+                <textarea id="careerInput" rows="2" placeholder="例：一个独立的创作者，靠数字产品养活自己，不受地点限制。"></textarea>
+                <div>2. 你希望自己的身体/健康状态是怎样的？<button class="example-btn" data-field="health">📋 示例</button></div>
+                <textarea id="healthInput" rows="2" placeholder="例：精力充沛，每天能早起运动，体重适中。"></textarea>
+                <div>3. 你希望每天的情绪/精神状态如何？<button class="example-btn" data-field="mind">📋 示例</button></div>
+                <textarea id="mindInput" rows="2" placeholder="例：平静、专注，不被琐事干扰。"></textarea>
+                <div class="field-hint">✍️ 3个标签（逗号隔开）<button class="example-btn" data-field="tags">📋 示例</button></div>
+                <input id="tagsInput" placeholder="例：创作者, 健康追求者, 终身学习者" value="${user.idealTags.join(', ')}">
+                ${user.settings.fastMode ? `<div>快速预设：<button class="presetBtn" data-preset="创作者">创作者</button> <button class="presetBtn" data-preset="健身者">健身者</button> <button class="presetBtn" data-preset="创业者">创业者</button></div>` : ''}
+                <div class="flex-btns"><button id="toStep2">下一步 → 构建反愿景</button></div>
+            </div>`;
+        }
+        else if (step === 2) {
+            html += `<div class="card">
+                <h2>💀 反愿景</h2>
+                <div class="badge">Dan Koe: "The anti-vision is the most underrated fuel for change."</div>
+                <div class="field-hint">✍️ 如果未来5年什么都不改变，你会活成什么样子？越具体、越让你难受越好。</div>
+                <textarea id="antiInput" rows="4" placeholder="例：40岁，肚子大，熬夜刷手机，工作随时被裁，孤独，后悔...">${escapeHtml(user.antiVision)}</textarea>
+                <div class="flex-btns"><button id="back1" class="secondary">← 上一步</button><button id="toStep3">下一步 → 行为审计</button></div>
+            </div>`;
+        }
+        else if (step === 3) {
+            let badHtml = `<div><h3>消耗性行为（拖后腿的事）</h3><div class="field-hint">✍️ 每天重复做的、与理想身份相反的事。至少添加一条。</div>`;
+            user.badActions.forEach((b,idx)=> {
+                badHtml += `<div style="margin:8px 0; background:#0f141c; padding:8px; border-radius:1rem;">📌 ${escapeHtml(b.text)}`;
+                badHtml += `<div style="margin-left:1rem;"><span style="font-size:0.7rem;">替换行动：</span>`;
+                (b.mappedActions || []).forEach((act,i)=> {
+                    badHtml += `<span class="identity-tag" data-replace="${idx}|${i}">${escapeHtml(act)}</span>`;
+                });
+                badHtml += `<button class="addMapping" data-idx="${idx}" style="background:none; border:1px solid #3b82f6; font-size:0.7rem; border-radius:20px; padding:2px 8px;">+ 添加替换</button>`;
+                badHtml += `</div></div>`;
+            });
+            badHtml += `<textarea id="newBad" rows="2" placeholder="添加新的坏行为..."></textarea><button id="addBadBtn" class="secondary">+ 添加</button>`;
+            html += `<div class="card"><h2>🔍 行为审计</h2>${badHtml}<div class="flex-btns"><button id="back2" class="secondary">← 上一步</button><button id="toStep4">下一步 → 创造系统</button></div></div>`;
+        }
+        else if (step === 4) {
+            let creativeHtml = `<h2>⚙️ 创造行动</h2><div class="field-hint">✍️ 能产出长期资产的行为。至少添加一条。</div>`;
+            creativeHtml += `<div id="aiGenArea"></div><ul>`;
+            user.creativeActions.forEach((act,idx)=> { creativeHtml += `<li>${escapeHtml(act)} <button class="delCreative" data-idx="${idx}" style="background:none; color:#f97316; margin-left:8px;">✖️</button></li>`; });
+            creativeHtml += `</ul><textarea id="newCreative" rows="2" placeholder="新创造行动..."></textarea><button id="addCreativeBtn" class="secondary">+ 添加</button>`;
+            creativeHtml += `<button id="aiSuggestBtn" style="margin-left:10px;">✨ AI 生成个性化建议</button>`;
+            html += `<div class="card">${creativeHtml}<div class="flex-btns"><button id="back3" class="secondary">← 上一步</button><button id="toStep5">进入每日校准</button></div></div>`;
+        }
+        else if (step === 5) {
+            let todayLog = user.dailyLogs.find(l=>l.date===today) || { date:today, alignment:3, win:"", obstacle:"", doneIndices:[] };
+            html += `<div class="card">
+                <h2>🌅 每日校准 · ${today}</h2>
+                <div class="badge">Dan Koe: "What you do daily is what you become."</div>
+                <div>对齐度：${[1,2,3,4,5].map(v=>`<label style="margin-right:12px;"><input type="radio" name="align" value="${v}" ${todayLog.alignment===v?'checked':''}> ${v}</label>`).join('')}</div>
+                <div class="field-hint">🏆 今天的最小胜利（任何微小进步）</div>
+                <textarea id="winInput" rows="2" placeholder="例：放下手机看了10页书">${escapeHtml(todayLog.win)}</textarea>
+                <div class="field-hint">⚠️ 最大阻碍（什么阻止了你成为理想身份）</div>
+                <textarea id="obsInput" rows="2" placeholder="例：刷了2小时短视频">${escapeHtml(todayLog.obstacle)}</textarea>
+                <div>完成的创造行动：</div>`;
+            user.creativeActions.forEach((act,idx)=> {
+                let checked = todayLog.doneIndices?.includes(idx);
+                html += `<label><input type="checkbox" data-act="${idx}" ${checked?'checked':''}> ${escapeHtml(act)}</label><br>`;
+            });
+            html += `<div class="flex-btns"><button id="saveDaily">保存今日</button><button id="weeklyInsightBtn" class="secondary">📊 AI周洞察</button></div>`;
+            html += `<div id="vizArea"></div>`;
+            html += `<button id="shareBtn" class="secondary" style="margin-top:0.5rem;">📤 分享本周身份对齐度</button>`;
+            html += `<button id="resetAllBtn" class="secondary" style="margin-top:1rem;">重置全部数据</button>`;
+            html += `</div>`;
+        }
+        
+        html += `<div class="privacy-note">🔒 所有数据只存在你的浏览器本地。AI 通过安全代理调用，不存储任何个人信息。</div></div>`;
+        app.innerHTML = html;
+        attachAppEvents();
+        if (step === 5) renderVisualization();
+    }
+    
+    function attachAppEvents() {
+        // 设置（简化，仅通知和快速模式）
+        document.getElementById("settingsBtn")?.addEventListener("click", () => {
+            let notif = confirm("是否开启每日提醒通知？");
+            if (notif) { user.settings.enableNotifications = true; requestNotification(); }
+            else user.settings.enableNotifications = false;
+            let fast = confirm("快速模式（预设身份标签）？");
+            user.settings.fastMode = fast;
+            persist();
+            alert("设置已保存");
+            renderApp();
+        });
+        
+        // 示例填充
+        document.querySelectorAll('.example-btn').forEach(btn => {
+            btn.onclick = (e) => {
+                e.stopPropagation();
+                const field = btn.dataset.field;
+                if (field === 'career') document.getElementById('careerInput').value = "一个独立的创作者，靠数字产品养活自己，不受地点限制。";
+                if (field === 'health') document.getElementById('healthInput').value = "精力充沛，每天能早起运动，体重适中。";
+                if (field === 'mind') document.getElementById('mindInput').value = "平静、专注，不被琐事干扰。";
+                if (field === 'tags') document.getElementById('tagsInput').value = "创作者, 健康追求者, 终身学习者";
+                if (field === 'anti') document.getElementById('antiInput').value = "40岁，肚子大，熬夜刷手机，工作随时被裁，孤独，后悔年轻时没拼一把。";
+            };
+        });
+        
+        // 步骤1 -> 2 验证
+        document.getElementById("toStep2")?.addEventListener("click",()=>{
+            const career = document.getElementById("careerInput")?.value.trim() || "";
+            const health = document.getElementById("healthInput")?.value.trim() || "";
+            const mind = document.getElementById("mindInput")?.value.trim() || "";
+            const tagsRaw = document.getElementById("tagsInput")?.value.trim() || "";
+            if (!career && !health && !mind) { alert("请至少填写一个关于理想身份的问题（职业、健康或心态）。"); return; }
+            if (!tagsRaw) { alert("请至少填写一个身份标签（用逗号隔开）。"); return; }
+            const tags = tagsRaw.split(/[,，]/).map(t=>t.trim()).filter(t=>t);
+            if (tags.length === 0) { alert("请至少填写一个身份标签。"); return; }
+            user.idealIdentity = `职业：${career}；健康：${health}；心态：${mind}`;
+            user.idealTags = tags;
+            step=2; persist(); renderApp();
+        });
+        
+        // 步骤2 -> 3 验证
+        document.getElementById("toStep3")?.addEventListener("click",()=>{
+            const anti = document.getElementById("antiInput")?.value.trim();
+            if (!anti) { alert("请填写你的反愿景（你不想成为的样子）。"); return; }
+            user.antiVision = anti;
+            step=3; persist(); renderApp();
+        });
+        
+        // 步骤3 -> 4 验证
+        document.getElementById("toStep4")?.addEventListener("click",()=>{
+            if (user.badActions.length === 0) { alert("请至少添加一条消耗性行为（拖后腿的事）。"); return; }
+            step=4; persist(); renderApp();
+        });
+        
+        // 步骤4 -> 5 验证
+        document.getElementById("toStep5")?.addEventListener("click",()=>{
+            if (user.creativeActions.length === 0) { alert("请至少添加一条创造行动。"); return; }
+            step=5; persist(); renderApp();
+        });
+        
+        // 返回按钮
+        document.getElementById("back1")?.addEventListener("click",()=>{ step=1; persist(); renderApp(); });
+        document.getElementById("back2")?.addEventListener("click",()=>{ step=2; persist(); renderApp(); });
+        document.getElementById("back3")?.addEventListener("click",()=>{ step=3; persist(); renderApp(); });
+        
+        // 添加坏行为
+        document.getElementById("addBadBtn")?.addEventListener("click",()=>{
+            const val = document.getElementById("newBad")?.value.trim();
+            if(val) { 
+                user.badActions.push({ text: val, mappedActions: [] }); 
+                persist(); 
+                renderApp(); 
+                document.getElementById("newBad").value = "";
+            } else { alert("请输入坏行为内容"); }
+        });
+        
+        // 添加创造行动
+        document.getElementById("addCreativeBtn")?.addEventListener("click",()=>{
+            const act = document.getElementById("newCreative")?.value.trim();
+            if(act) { 
+                user.creativeActions.push(act); 
+                persist(); 
+                renderApp(); 
+                document.getElementById("newCreative").value = "";
+            } else { alert("请输入创造行动内容"); }
+        });
+        
+        // AI 生成
+        const aiBtn = document.getElementById("aiSuggestBtn");
+        if (aiBtn) {
+            aiBtn.addEventListener("click", async () => {
+                aiBtn.disabled = true;
+                aiBtn.textContent = "⏳ 生成中...";
+                const acts = await generatePersonalizedActions();
+                if(acts) {
+                    const lines = acts.split("\n").filter(l=>l.trim());
+                    for(let l of lines) {
+                        if(!user.creativeActions.includes(l.trim())) user.creativeActions.push(l.trim());
+                    }
+                    persist();
+                    renderApp();
+                }
+                aiBtn.disabled = false;
+                aiBtn.textContent = "✨ AI 生成个性化建议";
+            });
+        }
+        
+        // 保存每日
+        document.getElementById("saveDaily")?.addEventListener("click",()=>{
+            const align = parseInt(document.querySelector('input[name="align"]:checked')?.value||3);
+            const win = document.getElementById("winInput")?.value||"";
+            const obs = document.getElementById("obsInput")?.value||"";
+            const done = [...document.querySelectorAll('input[type="checkbox"][data-act]')].filter(cb=>cb.checked).map(cb=>parseInt(cb.dataset.act));
+            let existing = user.dailyLogs.find(l=>l.date===today);
+            if(existing) { existing.alignment=align; existing.win=win; existing.obstacle=obs; existing.doneIndices=done; }
+            else user.dailyLogs.push({ date:today, alignment:align, win, obstacle:obs, doneIndices:done });
+            persist();
+            alert("已保存");
+            if(user.settings.enableNotifications && notificationPermission) new Notification("身份校准提醒", { body: "今日记录已保存！" });
+            if (!localStorage.getItem("reward_triggered")) {
+                rewardInviter();
+                localStorage.setItem("reward_triggered", "true");
+            }
+            renderApp();
+        });
+        
+        // AI 周洞察
+        document.getElementById("weeklyInsightBtn")?.addEventListener("click", async () => {
+            const last7 = user.dailyLogs.slice(-7);
+            if(last7.length===0) return alert("暂无一周数据，请先完成几天校准。");
+            const insight = await generateWeeklyInsight(last7);
+            if(insight) alert(insight);
+        });
+        
+        // 分享卡片
+        document.getElementById("shareBtn")?.addEventListener("click", async () => {
+            const canvas = await generateShareCard();
+            const link = document.createElement('a');
+            link.download = 'identity_share.png';
+            link.href = canvas.toDataURL();
+            link.click();
+            alert("图片已保存，快去分享吧！");
+        });
+        
+        // 重置
+        document.getElementById("resetAllBtn")?.addEventListener("click",()=>{
+            if(confirm("重置所有数据？此操作不可恢复。")) { localStorage.removeItem(STORAGE_KEY); location.reload(); }
+        });
+        
+        // 行为映射
+        document.querySelectorAll('.addMapping').forEach(btn => {
+            btn.onclick = () => {
+                const idx = parseInt(btn.dataset.idx);
+                const newMap = prompt("输入替换行动（如：刷视频 -> 写50字）");
+                if(newMap) {
+                    if(!user.badActions[idx].mappedActions) user.badActions[idx].mappedActions = [];
+                    user.badActions[idx].mappedActions.push(newMap);
+                    persist(); renderApp();
+                }
+            };
+        });
+        document.querySelectorAll('[data-replace]').forEach(el => {
+            el.onclick = () => {
+                const [badIdx, mapIdx] = el.dataset.replace.split('|').map(Number);
+                alert(`建议行动：${user.badActions[badIdx].mappedActions[mapIdx]}`);
+            };
+        });
+        
+        // 预设按钮
+        document.querySelectorAll('.presetBtn').forEach(btn => {
+            btn.onclick = () => {
+                const p = btn.dataset.preset;
+                const map = {创作者:["写作者","内容生产者"],健身者:["强健体魄","自律者"],创业者:["解决问题者","价值创造者"]};
+                if(map[p]) {
+                    document.getElementById("tagsInput").value = map[p].join(", ");
+                    user.idealTags = map[p];
+                }
+            };
+        });
+    }
+    
+    // 启动应用
+    handleInvite();
+    if (sessionStorage.getItem("paid") === "true" || (sessionStorage.getItem("trial_expiry") && parseInt(sessionStorage.getItem("trial_expiry")) > Date.now())) {
+        isAuthenticated = true;
+        document.getElementById("lockContainer").style.display = "none";
+        document.getElementById("appContainer").style.display = "block";
+        loadStorage();
+        renderApp();
+    } else {
+        renderLockScreen();
+    }
+</script>
+</body>
+</html>

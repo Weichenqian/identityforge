@@ -1,0 +1,8 @@
+{
+  "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }],
+  "functions": {
+    "api/proxy.js": {
+      "maxDuration": 10
+    }
+  }
+}
