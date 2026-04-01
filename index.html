@@ -50,6 +50,10 @@
         .history-item { background: #0f141c; border-radius: 1rem; padding: 0.8rem; margin-bottom: 0.8rem; border-left: 3px solid #3b82f6; }
         .progress-bar { height: 8px; background: #252f3c; border-radius: 4px; overflow: hidden; margin: 8px 0; }
         .progress-fill { height: 100%; background: #3b82f6; width: 0%; transition: width 0.3s; }
+        .stage-card { background: #0f141c; border-radius: 1rem; padding: 0.5rem 1rem; margin-bottom: 1rem; text-align: center; }
+        .firework { position: fixed; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 9999; }
+        .badge-animate { animation: pulse 0.5s ease-in-out; }
+        @keyframes pulse { 0% { transform: scale(1); } 50% { transform: scale(1.2); background-color: #f59e0b; } 100% { transform: scale(1); } }
     </style>
 </head>
 <body>
@@ -100,28 +104,31 @@
     let user = {
         idealIdentity: "", idealTags: [], antiVision: "", badActions: [], creativeActions: [], dailyLogs: [],
         userInfo: { ageGroup: "", occupation: "", challenges: "", reason: "", expectation: "" },
-        settings: { enableNotifications: false, fastMode: false, weeklyGoal: null }
+        settings: { enableNotifications: false, fastMode: false, weeklyGoal: null, inviteCount: 0 }
     };
     let today = new Date().toISOString().slice(0,10);
     let notificationPermission = false;
     let isAuthenticated = false;
     let inviteCode = null, referredBy = null;
     let consecutiveDays = 0;
-    const STORAGE_KEY = "identity_forge_pro_v6";
+    let historyPage = 0;
+    const HISTORY_PAGE_SIZE = 10;
+    const STORAGE_KEY = "identity_forge_pro_v7";
     
-    function persist() { localStorage.setItem(STORAGE_KEY, JSON.stringify({ step, user, today, inviteCode, referredBy, consecutiveDays })); }
+    function persist() { localStorage.setItem(STORAGE_KEY, JSON.stringify({ step, user, today, inviteCode, referredBy, consecutiveDays, historyPage })); }
     function loadStorage() {
         const raw = localStorage.getItem(STORAGE_KEY);
         if (raw) {
             try {
                 const data = JSON.parse(raw);
                 step = data.step || 1;
-                user = data.user || { idealIdentity: "", idealTags: [], antiVision: "", badActions: [], creativeActions: [], dailyLogs: [], userInfo: { ageGroup: "", occupation: "", challenges: "", reason: "", expectation: "" }, settings: { enableNotifications: false, fastMode: false, weeklyGoal: null } };
+                user = data.user || { idealIdentity: "", idealTags: [], antiVision: "", badActions: [], creativeActions: [], dailyLogs: [], userInfo: { ageGroup: "", occupation: "", challenges: "", reason: "", expectation: "" }, settings: { enableNotifications: false, fastMode: false, weeklyGoal: null, inviteCount: 0 } };
                 today = data.today || new Date().toISOString().slice(0,10);
                 inviteCode = data.inviteCode || null;
                 referredBy = data.referredBy || null;
                 consecutiveDays = data.consecutiveDays || 0;
-                if (!user.settings) user.settings = { enableNotifications: false, fastMode: false, weeklyGoal: null };
+                historyPage = data.historyPage || 0;
+                if (!user.settings) user.settings = { enableNotifications: false, fastMode: false, weeklyGoal: null, inviteCount: 0 };
                 if (!user.userInfo) user.userInfo = { ageGroup: "", occupation: "", challenges: "", reason: "", expectation: "" };
                 if (!user.badActions.map) user.badActions = [];
                 if (!user.dailyLogs) user.dailyLogs = [];
@@ -158,7 +165,30 @@
     function handleInvite() {
         const urlParams = new URLSearchParams(window.location.search);
         const code = urlParams.get('invite');
-        if (code && !referredBy) { referredBy = code; persist(); }
+        if (code && !referredBy) {
+            referredBy = code;
+            // 增加邀请者计数（模拟）
+            let inviterCount = localStorage.getItem(`inviteCount_${code}`);
+            if (inviterCount) {
+                inviterCount = parseInt(inviterCount) + 1;
+                localStorage.setItem(`inviteCount_${code}`, inviterCount);
+                checkInviteRewards(code, inviterCount);
+            } else {
+                localStorage.setItem(`inviteCount_${code}`, 1);
+                checkInviteRewards(code, 1);
+            }
+            persist();
+        }
+    }
+    function checkInviteRewards(code, count) {
+        if (count >= 3) {
+            let rewardKey = `reward_${code}`;
+            let existing = localStorage.getItem(rewardKey);
+            if (!existing) {
+                localStorage.setItem(rewardKey, Date.now() + 7*24*3600*1000);
+                showToast("🎉 感谢邀请！你已成功邀请3位朋友，获得7天免费试用延长！");
+            }
+        }
     }
     function rewardInviter() {
         if (!referredBy) return;
@@ -171,7 +201,7 @@
         referredBy = null;
         persist();
     }
-    async function callAI(prompt) {
+    async function callAI(prompt, isPaid = true) {
         try {
             const res = await fetch(API_PROXY, {
                 method: "POST",
@@ -180,7 +210,14 @@
             });
             const data = await res.json();
             if (!res.ok) throw new Error(data.error || "调用失败");
-            return data.result;
+            let result = data.result;
+            if (!isPaid && result) {
+                const lines = result.split("\n").filter(l=>l.trim());
+                if (lines.length > 3) {
+                    result = lines.slice(0,3).join("\n") + "\n\n🔒 剩余建议需要购买密码后解锁";
+                }
+            }
+            return result;
         } catch(e) {
             console.error(e);
             showToast("AI 调用失败：" + e.message);
@@ -189,9 +226,10 @@
     }
     async function generatePersonalizedActions() {
         if (!user.idealIdentity) { showToast("请先完成第一步：定义理想身份"); return; }
+        const paid = checkAuth();
         const userContext = `用户背景：年龄 ${user.userInfo.ageGroup || "未知"}，身份 ${user.userInfo.occupation || "未知"}，主要困扰：${user.userInfo.challenges || "无"}，重启原因：${user.userInfo.reason || "无"}，期望：${user.userInfo.expectation || "无"}`;
-        const prompt = `你是一位Dan Koe方法论教练。${userContext}。用户理想身份：「${user.idealIdentity}」，标签：${user.idealTags.join(", ")}。反愿景：「${user.antiVision||"无"}」。坏行为：${user.badActions.map(b=>b.text).join("、")||"无"}。给出5条非常具体、可执行的「创造行动」建议，每条不超过30字，每条换行。只输出建议列表，不要解释。`;
-        return await callAI(prompt);
+        const prompt = `你是一位Dan Koe方法论教练。${userContext}。用户理想身份：「${user.idealIdentity}」，标签：${user.idealTags.join(", ")}。反愿景：「${user.antiVision||"无"}」。坏行为：${user.badActions.map(b=>b.text).join("、")||"无"}。请给出5条非常具体、可执行的「创造行动」建议，分为两类：第一类“今日最小行动”（3条），第二类“本周挑战”（2条）。每条不超过30字，换行分隔。格式：今日最小行动：\n1. ...\n2. ...\n3. ...\n本周挑战：\n1. ...\n2. ...`;
+        return await callAI(prompt, paid);
     }
     async function generateWeeklyInsight(logs) {
         if (logs.length === 0) return null;
@@ -199,7 +237,8 @@
         const total = logs.reduce((s,l)=>s+(l.doneIndices?.length||0),0);
         const userContext = `用户背景：年龄 ${user.userInfo.ageGroup || "未知"}，身份 ${user.userInfo.occupation || "未知"}，主要困扰：${user.userInfo.challenges || "无"}，重启原因：${user.userInfo.reason || "无"}，期望：${user.userInfo.expectation || "无"}`;
         const prompt = `过去7天用户身份匹配度平均 ${avg.toFixed(1)}/5。完成的创造行动次数：${total}。${userContext}他的理想身份：「${user.idealIdentity}」。反愿景：「${user.antiVision||"无"}」。请给出一段简洁的鼓励+改进建议（中文，100字以内）。然后基于此，为他生成下周的3个“微承诺”（每条10字左右）。输出格式：建议：... 承诺：1. ... 2. ... 3. ...`;
-        return await callAI(prompt);
+        const paid = checkAuth();
+        return await callAI(prompt, paid);
     }
     function updateConsecutiveDays() {
         const logs = user.dailyLogs.sort((a,b)=>a.date.localeCompare(b.date));
@@ -216,15 +255,38 @@
         }
         consecutiveDays = days;
         persist();
+        if (consecutiveDays === 7) showFireworks();
+        if (consecutiveDays === 14) showFireworks();
+        if (consecutiveDays === 30) showFireworks();
+    }
+    function showFireworks() {
+        const firework = document.createElement('div');
+        firework.className = 'firework';
+        firework.innerHTML = '🎆✨🎇';
+        firework.style.fontSize = '50px';
+        firework.style.textAlign = 'center';
+        firework.style.lineHeight = '100vh';
+        document.body.appendChild(firework);
+        setTimeout(() => firework.remove(), 2000);
+        showToast("🎉 恭喜！连续复盘里程碑达成！");
     }
     function checkAchievements() {
         const achievements = [];
         if (consecutiveDays >= 3) achievements.push("🎖️ 连续3天复盘");
         if (consecutiveDays >= 7) achievements.push("🏅 一周战士");
+        if (consecutiveDays >= 30) achievements.push("🌟 月行者");
         if (user.dailyLogs.length >= 30) achievements.push("🌟 月行者");
         if (user.creativeActions.length >= 5) achievements.push("💡 创造者");
         if (user.badActions.length >= 3) achievements.push("🔍 自我洞察者");
         return achievements;
+    }
+    function getIdentityStage() {
+        const logs = user.dailyLogs.length;
+        const totalCreates = user.dailyLogs.reduce((s,l)=>s+(l.doneIndices?.length||0),0);
+        if (logs >= 30 && totalCreates >= 30) return { name: "大师", emoji: "🧙", desc: "你已经精通身份锻造" };
+        if (logs >= 14 && totalCreates >= 14) return { name: "锻造者", emoji: "⚒️", desc: "你的新身份正在成型" };
+        if (logs >= 7 && totalCreates >= 7) return { name: "实践者", emoji: "🏃", desc: "已经开始行动了" };
+        return { name: "学徒", emoji: "🌱", desc: "刚刚踏上旅程" };
     }
     function getStatistics() {
         const logs = user.dailyLogs;
@@ -242,6 +304,9 @@
     function renderHistoryModal() {
         const stats = getStatistics();
         const logs = [...user.dailyLogs].sort((a,b)=>b.date.localeCompare(a.date));
+        const start = historyPage * HISTORY_PAGE_SIZE;
+        const end = start + HISTORY_PAGE_SIZE;
+        const pageLogs = logs.slice(start, end);
         let html = `<div style="margin-top:1rem; border-top:1px solid #2a3342; padding-top:1rem;">
             <h3>📊 总体情况</h3>
             <div class="stats-grid">
@@ -254,7 +319,7 @@
             <div class="progress-bar"><div class="progress-fill" style="width:${stats.progress}%;"></div></div>
             <button id="editGoalBtn" class="secondary small" style="margin-top:4px;">调整本周目标</button></div>
             <h3 style="margin-top:1rem;">📝 历史复盘记录</h3>`;
-        for (let log of logs) {
+        for (let log of pageLogs) {
             const doneCount = log.doneIndices?.length || 0;
             html += `<div class="history-item">
                 <strong>${log.date}</strong> · 匹配度 ${log.alignment}/5 · 完成创造行动 ${doneCount} 项<br>
@@ -262,7 +327,10 @@
                 ⚠️ 最大阻碍：${escapeHtml(log.obstacle || "无")}
             </div>`;
         }
-        if (logs.length === 0) html += `<div class="history-item">暂无记录，开始每日复盘吧！</div>`;
+        if (pageLogs.length === 0) html += `<div class="history-item">暂无记录，开始每日复盘吧！</div>`;
+        if (logs.length > end) {
+            html += `<div class="flex-btns"><button id="loadMoreHistoryBtn" class="secondary small">加载更多</button></div>`;
+        }
         html += `</div>`;
         return html;
     }
@@ -389,7 +457,32 @@
     
     function escapeHtml(s) { return String(s).replace(/[&<>]/g, function(m){ if(m==='&') return '&amp;'; if(m==='<') return '&lt;'; if(m==='>') return '&gt;'; return m;}); }
     
-    // 主渲染函数
+    function exportBlueprint() {
+        const stage = getIdentityStage();
+        let content = `# 我的身份蓝图\n\n`;
+        content += `## 个人背景\n`;
+        content += `- 年龄：${user.userInfo.ageGroup || "未填"}\n`;
+        content += `- 职业：${user.userInfo.occupation || "未填"}\n`;
+        content += `- 主要挑战：${user.userInfo.challenges || "未填"}\n`;
+        content += `- 重启原因：${user.userInfo.reason || "未填"}\n`;
+        content += `- 期望：${user.userInfo.expectation || "未填"}\n\n`;
+        content += `## 理想身份\n${user.idealIdentity || "未填"}\n\n`;
+        content += `## 身份标签\n${user.idealTags.join(", ") || "未填"}\n\n`;
+        content += `## 反愿景\n${user.antiVision || "未填"}\n\n`;
+        content += `## 消耗性行为\n${user.badActions.map(b=>b.text).join("\n") || "无"}\n\n`;
+        content += `## 创造行动\n${user.creativeActions.map((a,i)=>`${i+1}. ${a}`).join("\n") || "无"}\n\n`;
+        content += `## 当前阶段\n${stage.emoji} ${stage.name}：${stage.desc}\n\n`;
+        const stats = getStatistics();
+        content += `## 统计数据\n- 总复盘天数：${stats.totalDays}\n- 连续复盘天数：${stats.consecutiveDays}\n- 平均匹配度：${stats.avgMatch}/5\n- 总创造行动完成数：${stats.totalCreates}\n`;
+        const blob = new Blob([content], {type: "text/markdown"});
+        const link = document.createElement("a");
+        link.href = URL.createObjectURL(blob);
+        link.download = "我的身份蓝图.md";
+        link.click();
+        URL.revokeObjectURL(link.href);
+        showToast("蓝图已导出为 Markdown 文件");
+    }
+    
     function renderApp() {
         const app = document.getElementById("appContainer");
         if (!app) return;
@@ -410,7 +503,9 @@
             return;
         }
         
-        // 检查是否已填写用户基本信息，如果没有则显示第0步
+        const stage = getIdentityStage();
+        html += `<div class="stage-card">${stage.emoji} 当前阶段：${stage.name} · ${stage.desc}</div>`;
+        
         const hasUserInfo = user.userInfo.ageGroup && user.userInfo.occupation && user.userInfo.challenges && user.userInfo.reason && user.userInfo.expectation;
         if (!hasUserInfo && step === 1) {
             html += `<div class="card">
@@ -459,7 +554,11 @@
                 }
                 user.userInfo = { ageGroup, occupation, challenges, reason, expectation };
                 persist();
-                renderApp(); // 刷新进入步骤1
+                showToast("🎉 感谢分享！正在为你生成初步洞察报告...");
+                setTimeout(() => {
+                    alert(`初步洞察报告\n\n根据你的情况（${ageGroup}，${occupation}，想解决“${challenges}”），我们建议你重点关注“身份驱动”。\n你希望在${expectation}。接下来的步骤将帮你一步步构建理想身份。`);
+                }, 100);
+                renderApp();
             });
             return;
         }
@@ -469,7 +568,7 @@
             html += `<div class="card"><h3>🏆 你的成就</h3><div>${achievements.map(a=>`<span class="identity-tag">${a}</span>`).join('')}</div></div>`;
         }
         
-        // 步骤1-5渲染（与上一版相同，但会在提示词中融入用户信息）
+        // 步骤1
         if (step === 1) {
             html += `<div class="card">
                 <h1>🎭 定义你的理想身份</h1>
@@ -495,7 +594,7 @@
                 <div class="flex-btns"><button id="back1" class="secondary">← 上一步</button><button id="toStep3">下一步 → 你每天在干什么？</button></div>
             </div>`;
         } else if (step === 3) {
-            let badHtml = `<div><h3>拖后腿的事（消耗性行为）</h3><div class="field-hint">✍️ 每天重复做的、与理想身份相反的事。至少添加一条。</div>`;
+            let badHtml = `<div><h3>拖后腿的事（消耗性行为）</h3><div class="badge" style="margin-bottom:0.5rem;">Dan Koe: "Most people spend their lives in Maintain and Recover — never in Create."</div><div class="field-hint">✍️ 每天重复做的、与理想身份相反的事。至少添加一条。</div>`;
             user.badActions.forEach((b,idx)=> {
                 badHtml += `<div style="margin:8px 0; background:#0f141c; padding:8px; border-radius:1rem;">📌 ${escapeHtml(b.text)}`;
                 badHtml += `<div style="margin-left:1rem;"><span style="font-size:0.7rem;">替换行动：</span>`;
@@ -508,7 +607,7 @@
             badHtml += `<textarea id="newBad" rows="2" placeholder="添加新的坏行为..."></textarea><button id="addBadBtn" class="secondary">+ 添加</button>`;
             html += `<div class="card"><h2>🔍 行为审计</h2>${badHtml}<div class="flex-btns"><button id="back2" class="secondary">← 上一步</button><button id="toStep4">下一步 → 开始创造</button></div></div>`;
         } else if (step === 4) {
-            let creativeHtml = `<h2>⚙️ 今天开始创造什么？</h2><div class="field-hint">✍️ 能产出长期资产的行为。至少添加一条。</div>`;
+            let creativeHtml = `<h2>⚙️ 今天开始创造什么？</h2><div class="badge">Dan Koe: "Replace consumption with creation."</div><div class="field-hint">✍️ 能产出长期资产的行为。至少添加一条。</div>`;
             creativeHtml += `<div id="aiGenArea"></div><ul>`;
             user.creativeActions.forEach((act,idx)=> { creativeHtml += `<li>${escapeHtml(act)} <button class="delCreative" data-idx="${idx}" style="background:none; color:#f97316; margin-left:8px;">✖️</button></li>`; });
             creativeHtml += `</ul><textarea id="newCreative" rows="2" placeholder="新创造行动..."></textarea><button id="addCreativeBtn" class="secondary">+ 添加</button>`;
@@ -532,7 +631,7 @@
             });
             html += `<div class="flex-btns"><button id="saveDaily">保存今日</button><button id="weeklyInsightBtn" class="secondary">📊 AI周洞察</button></div>`;
             html += `<div id="vizArea"></div>`;
-            html += `<div class="flex-btns"><button id="historyBtn" class="secondary small">📊 历史与进度</button><button id="shareBtn" class="secondary small">📤 保存图片分享</button><button id="copyLinkBtn" class="secondary small">🔗 复制邀请链接</button><button id="wechatShareHint" class="secondary small">💬 微信分享指引</button></div>`;
+            html += `<div class="flex-btns"><button id="historyBtn" class="secondary small">📊 历史与进度</button><button id="shareBtn" class="secondary small">📤 保存图片分享</button><button id="copyLinkBtn" class="secondary small">🔗 复制邀请链接</button><button id="wechatShareHint" class="secondary small">💬 微信分享指引</button><button id="exportBlueprintBtn" class="secondary small">📄 导出身份蓝图</button></div>`;
             html += `<div id="historyPanel" style="display:none;"></div>`;
             html += `<button id="resetAllBtn" class="secondary" style="margin-top:1rem;">重置全部数据</button>`;
             html += `</div>`;
@@ -697,6 +796,10 @@
             alert("微信分享方法：\n1. 点击「保存图片分享」保存周报图\n2. 长按图片保存到手机\n3. 打开微信，发朋友圈或发给朋友\n4. 或者复制邀请链接发给好友，对方打开即可试用");
         });
         
+        document.getElementById("exportBlueprintBtn")?.addEventListener("click", () => {
+            exportBlueprint();
+        });
+        
         document.getElementById("historyBtn")?.addEventListener("click", () => {
             const panel = document.getElementById("historyPanel");
             if (panel.style.display === "none") {
@@ -711,6 +814,11 @@
                         panel.innerHTML = renderHistoryModal();
                         document.getElementById("editGoalBtn")?.addEventListener("click", arguments.callee);
                     }
+                });
+                document.getElementById("loadMoreHistoryBtn")?.addEventListener("click", () => {
+                    historyPage++;
+                    persist();
+                    panel.innerHTML = renderHistoryModal();
                 });
             } else {
                 panel.style.display = "none";
