@@ -99,6 +99,7 @@
     let step = 1;
     let user = {
         idealIdentity: "", idealTags: [], antiVision: "", badActions: [], creativeActions: [], dailyLogs: [],
+        userInfo: { ageGroup: "", occupation: "", challenges: "", reason: "", expectation: "" },
         settings: { enableNotifications: false, fastMode: false, weeklyGoal: null }
     };
     let today = new Date().toISOString().slice(0,10);
@@ -106,7 +107,7 @@
     let isAuthenticated = false;
     let inviteCode = null, referredBy = null;
     let consecutiveDays = 0;
-    const STORAGE_KEY = "identity_forge_pro_v5";
+    const STORAGE_KEY = "identity_forge_pro_v6";
     
     function persist() { localStorage.setItem(STORAGE_KEY, JSON.stringify({ step, user, today, inviteCode, referredBy, consecutiveDays })); }
     function loadStorage() {
@@ -115,12 +116,13 @@
             try {
                 const data = JSON.parse(raw);
                 step = data.step || 1;
-                user = data.user || { idealIdentity: "", idealTags: [], antiVision: "", badActions: [], creativeActions: [], dailyLogs: [], settings: { enableNotifications: false, fastMode: false, weeklyGoal: null } };
+                user = data.user || { idealIdentity: "", idealTags: [], antiVision: "", badActions: [], creativeActions: [], dailyLogs: [], userInfo: { ageGroup: "", occupation: "", challenges: "", reason: "", expectation: "" }, settings: { enableNotifications: false, fastMode: false, weeklyGoal: null } };
                 today = data.today || new Date().toISOString().slice(0,10);
                 inviteCode = data.inviteCode || null;
                 referredBy = data.referredBy || null;
                 consecutiveDays = data.consecutiveDays || 0;
                 if (!user.settings) user.settings = { enableNotifications: false, fastMode: false, weeklyGoal: null };
+                if (!user.userInfo) user.userInfo = { ageGroup: "", occupation: "", challenges: "", reason: "", expectation: "" };
                 if (!user.badActions.map) user.badActions = [];
                 if (!user.dailyLogs) user.dailyLogs = [];
                 if (user.settings.weeklyGoal === undefined || user.settings.weeklyGoal === null) {
@@ -187,14 +189,16 @@
     }
     async function generatePersonalizedActions() {
         if (!user.idealIdentity) { showToast("请先完成第一步：定义理想身份"); return; }
-        const prompt = `你是一位Dan Koe方法论教练。用户理想身份：「${user.idealIdentity}」，标签：${user.idealTags.join(", ")}。反愿景：「${user.antiVision||"无"}」。坏行为：${user.badActions.map(b=>b.text).join("、")||"无"}。给出5条非常具体、可执行的「创造行动」建议，每条不超过30字，每条换行。只输出建议列表，不要解释。`;
+        const userContext = `用户背景：年龄 ${user.userInfo.ageGroup || "未知"}，身份 ${user.userInfo.occupation || "未知"}，主要困扰：${user.userInfo.challenges || "无"}，重启原因：${user.userInfo.reason || "无"}，期望：${user.userInfo.expectation || "无"}`;
+        const prompt = `你是一位Dan Koe方法论教练。${userContext}。用户理想身份：「${user.idealIdentity}」，标签：${user.idealTags.join(", ")}。反愿景：「${user.antiVision||"无"}」。坏行为：${user.badActions.map(b=>b.text).join("、")||"无"}。给出5条非常具体、可执行的「创造行动」建议，每条不超过30字，每条换行。只输出建议列表，不要解释。`;
         return await callAI(prompt);
     }
     async function generateWeeklyInsight(logs) {
         if (logs.length === 0) return null;
         const avg = logs.reduce((s,l)=>s+l.alignment,0)/logs.length;
         const total = logs.reduce((s,l)=>s+(l.doneIndices?.length||0),0);
-        const prompt = `过去7天用户身份匹配度平均 ${avg.toFixed(1)}/5。完成的创造行动次数：${total}。他的理想身份：「${user.idealIdentity}」。反愿景：「${user.antiVision||"无"}」。请给出一段简洁的鼓励+改进建议（中文，100字以内）。然后基于此，为他生成下周的3个“微承诺”（每条10字左右）。输出格式：建议：... 承诺：1. ... 2. ... 3. ...`;
+        const userContext = `用户背景：年龄 ${user.userInfo.ageGroup || "未知"}，身份 ${user.userInfo.occupation || "未知"}，主要困扰：${user.userInfo.challenges || "无"}，重启原因：${user.userInfo.reason || "无"}，期望：${user.userInfo.expectation || "无"}`;
+        const prompt = `过去7天用户身份匹配度平均 ${avg.toFixed(1)}/5。完成的创造行动次数：${total}。${userContext}他的理想身份：「${user.idealIdentity}」。反愿景：「${user.antiVision||"无"}」。请给出一段简洁的鼓励+改进建议（中文，100字以内）。然后基于此，为他生成下周的3个“微承诺”（每条10字左右）。输出格式：建议：... 承诺：1. ... 2. ... 3. ...`;
         return await callAI(prompt);
     }
     function updateConsecutiveDays() {
@@ -385,7 +389,7 @@
     
     function escapeHtml(s) { return String(s).replace(/[&<>]/g, function(m){ if(m==='&') return '&amp;'; if(m==='<') return '&lt;'; if(m==='>') return '&gt;'; return m;}); }
     
-    // ======================= 主应用渲染 =======================
+    // 主渲染函数
     function renderApp() {
         const app = document.getElementById("appContainer");
         if (!app) return;
@@ -406,12 +410,66 @@
             return;
         }
         
+        // 检查是否已填写用户基本信息，如果没有则显示第0步
+        const hasUserInfo = user.userInfo.ageGroup && user.userInfo.occupation && user.userInfo.challenges && user.userInfo.reason && user.userInfo.expectation;
+        if (!hasUserInfo && step === 1) {
+            html += `<div class="card">
+                <h1>📋 先认识一下你</h1>
+                <div class="badge">为了让后面的建议更贴合你的情况，请花2分钟填写</div>
+                <div class="field-hint">✍️ 你的回答只会保存在你的手机/电脑里，不会泄露</div>
+                <div><strong>1. 你的年龄段？</strong></div>
+                <select id="ageGroupInput">
+                    <option value="">请选择</option>
+                    <option value="10岁以下">10岁以下</option>
+                    <option value="10-15岁">10-15岁</option>
+                    <option value="16-20岁">16-20岁</option>
+                    <option value="21-30岁">21-30岁</option>
+                    <option value="31-40岁">31-40岁</option>
+                    <option value="41-50岁">41-50岁</option>
+                    <option value="50岁以上">50岁以上</option>
+                </select>
+                <div><strong>2. 你现在主要做什么？</strong></div>
+                <select id="occupationInput">
+                    <option value="">请选择</option>
+                    <option value="学生">学生</option>
+                    <option value="上班族">上班族</option>
+                    <option value="自由职业">自由职业</option>
+                    <option value="创业">创业</option>
+                    <option value="待业">待业</option>
+                    <option value="其他">其他</option>
+                </select>
+                <div><strong>3. 你目前最想解决的1-2个问题或挑战是什么？</strong></div>
+                <textarea id="challengesInput" rows="2" placeholder="例如：学习没动力、工作压力大、想减肥但坚持不下来、想找到人生方向..."></textarea>
+                <div><strong>4. 是什么原因让你想重新思考自己的人生？</strong></div>
+                <textarea id="reasonInput" rows="2" placeholder="例如：刚毕业迷茫、对现状不满、遇到了某个转折点、想要更自由的生活..."></textarea>
+                <div><strong>5. 你希望从这套系统里得到什么？</strong></div>
+                <textarea id="expectationInput" rows="2" placeholder="例如：清晰的目标、每天的行动计划、找回信心、养成好习惯..."></textarea>
+                <div class="flex-btns"><button id="saveUserInfoBtn">保存并开始</button></div>
+            </div>`;
+            app.innerHTML = html;
+            document.getElementById("saveUserInfoBtn")?.addEventListener("click", () => {
+                const ageGroup = document.getElementById("ageGroupInput").value;
+                const occupation = document.getElementById("occupationInput").value;
+                const challenges = document.getElementById("challengesInput").value.trim();
+                const reason = document.getElementById("reasonInput").value.trim();
+                const expectation = document.getElementById("expectationInput").value.trim();
+                if (!ageGroup || !occupation || !challenges || !reason || !expectation) {
+                    showToast("请完整填写所有问题");
+                    return;
+                }
+                user.userInfo = { ageGroup, occupation, challenges, reason, expectation };
+                persist();
+                renderApp(); // 刷新进入步骤1
+            });
+            return;
+        }
+        
         const achievements = checkAchievements();
         if (achievements.length) {
             html += `<div class="card"><h3>🏆 你的成就</h3><div>${achievements.map(a=>`<span class="identity-tag">${a}</span>`).join('')}</div></div>`;
         }
         
-        // 步骤1
+        // 步骤1-5渲染（与上一版相同，但会在提示词中融入用户信息）
         if (step === 1) {
             html += `<div class="card">
                 <h1>🎭 定义你的理想身份</h1>
@@ -428,9 +486,7 @@
                 ${user.settings.fastMode ? `<div>快速预设：<button class="presetBtn" data-preset="创作者">创作者</button> <button class="presetBtn" data-preset="健身者">健身者</button> <button class="presetBtn" data-preset="创业者">创业者</button></div>` : ''}
                 <div class="flex-btns"><button id="autoFillBtn" class="secondary small">✨ 智能填充示例</button><button id="toStep2">下一步 → 构建反愿景</button></div>
             </div>`;
-        }
-        // 步骤2
-        else if (step === 2) {
+        } else if (step === 2) {
             html += `<div class="card">
                 <h2>💀 你最不想成为的人</h2>
                 <div class="badge">Dan Koe: "The anti-vision is the most underrated fuel for change."</div>
@@ -438,9 +494,7 @@
                 <textarea id="antiInput" rows="4" placeholder="例：40岁，肚子大，熬夜刷手机，工作随时被裁，孤独，后悔...">${escapeHtml(user.antiVision)}</textarea>
                 <div class="flex-btns"><button id="back1" class="secondary">← 上一步</button><button id="toStep3">下一步 → 你每天在干什么？</button></div>
             </div>`;
-        }
-        // 步骤3
-        else if (step === 3) {
+        } else if (step === 3) {
             let badHtml = `<div><h3>拖后腿的事（消耗性行为）</h3><div class="field-hint">✍️ 每天重复做的、与理想身份相反的事。至少添加一条。</div>`;
             user.badActions.forEach((b,idx)=> {
                 badHtml += `<div style="margin:8px 0; background:#0f141c; padding:8px; border-radius:1rem;">📌 ${escapeHtml(b.text)}`;
@@ -453,18 +507,14 @@
             });
             badHtml += `<textarea id="newBad" rows="2" placeholder="添加新的坏行为..."></textarea><button id="addBadBtn" class="secondary">+ 添加</button>`;
             html += `<div class="card"><h2>🔍 行为审计</h2>${badHtml}<div class="flex-btns"><button id="back2" class="secondary">← 上一步</button><button id="toStep4">下一步 → 开始创造</button></div></div>`;
-        }
-        // 步骤4
-        else if (step === 4) {
+        } else if (step === 4) {
             let creativeHtml = `<h2>⚙️ 今天开始创造什么？</h2><div class="field-hint">✍️ 能产出长期资产的行为。至少添加一条。</div>`;
             creativeHtml += `<div id="aiGenArea"></div><ul>`;
             user.creativeActions.forEach((act,idx)=> { creativeHtml += `<li>${escapeHtml(act)} <button class="delCreative" data-idx="${idx}" style="background:none; color:#f97316; margin-left:8px;">✖️</button></li>`; });
             creativeHtml += `</ul><textarea id="newCreative" rows="2" placeholder="新创造行动..."></textarea><button id="addCreativeBtn" class="secondary">+ 添加</button>`;
             creativeHtml += `<button id="aiSuggestBtn" style="margin-left:10px;">✨ AI 生成个性化建议</button>`;
             html += `<div class="card">${creativeHtml}<div class="flex-btns"><button id="back3" class="secondary">← 上一步</button><button id="toStep5">进入每日复盘</button></div></div>`;
-        }
-        // 步骤5
-        else if (step === 5) {
+        } else if (step === 5) {
             let todayLog = user.dailyLogs.find(l=>l.date===today) || { date:today, alignment:3, win:"", obstacle:"", doneIndices:[] };
             html += `<div class="card">
                 <h2>🌅 每日复盘 · ${today}</h2>
@@ -494,9 +544,7 @@
         if (step === 5) renderVisualization();
     }
     
-    // 事件绑定
     function attachAppEvents() {
-        // 设置按钮
         document.getElementById("settingsBtn")?.addEventListener("click", () => {
             let notif = confirm("是否开启每日提醒通知？");
             if (notif) { user.settings.enableNotifications = true; requestNotification(); }
@@ -508,7 +556,6 @@
             renderApp();
         });
         
-        // 示例填充
         document.querySelectorAll('.example-btn').forEach(btn => {
             btn.onclick = (e) => {
                 e.stopPropagation();
@@ -521,7 +568,6 @@
             };
         });
         
-        // 智能填充示例
         document.getElementById("autoFillBtn")?.addEventListener("click", () => {
             document.getElementById("careerInput").value = "一个自由创作者，通过数字产品实现收入多元化。";
             document.getElementById("healthInput").value = "精力充沛，每天早起运动，体重健康。";
@@ -530,7 +576,6 @@
             showToast("已填充示例，你可以在此基础上修改");
         });
         
-        // 步骤流转
         document.getElementById("toStep2")?.addEventListener("click",()=>{
             const career = document.getElementById("careerInput")?.value.trim() || "";
             const health = document.getElementById("healthInput")?.value.trim() || "";
@@ -562,7 +607,6 @@
             step=5; persist(); renderApp();
         });
         
-        // 添加坏行为
         document.getElementById("addBadBtn")?.addEventListener("click",()=>{
             const val = document.getElementById("newBad")?.value.trim();
             if(val) { 
@@ -572,7 +616,6 @@
                 document.getElementById("newBad").value = "";
             } else { showToast("请输入坏行为内容"); }
         });
-        // 添加创造行动
         document.getElementById("addCreativeBtn")?.addEventListener("click",()=>{
             const act = document.getElementById("newCreative")?.value.trim();
             if(act) { 
@@ -582,7 +625,6 @@
                 document.getElementById("newCreative").value = "";
             } else { showToast("请输入创造行动内容"); }
         });
-        // 删除创造行动
         document.querySelectorAll('.delCreative').forEach(btn => {
             btn.onclick = () => {
                 const idx = parseInt(btn.dataset.idx);
@@ -591,7 +633,6 @@
             };
         });
         
-        // AI生成
         const aiBtn = document.getElementById("aiSuggestBtn");
         if (aiBtn) {
             aiBtn.addEventListener("click", async () => {
@@ -611,7 +652,6 @@
             });
         }
         
-        // 保存每日
         document.getElementById("saveDaily")?.addEventListener("click",()=>{
             const align = parseInt(document.querySelector('input[name="align"]:checked')?.value||3);
             const win = document.getElementById("winInput")?.value||"";
@@ -631,7 +671,6 @@
             renderApp();
         });
         
-        // AI周洞察
         document.getElementById("weeklyInsightBtn")?.addEventListener("click", async () => {
             const last7 = user.dailyLogs.slice(-7);
             if(last7.length===0) return showToast("暂无一周数据，请先完成几天复盘。");
@@ -639,7 +678,6 @@
             if(insight) alert(insight);
         });
         
-        // 分享图片
         document.getElementById("shareBtn")?.addEventListener("click", async () => {
             const canvas = await generateShareCard();
             const link = document.createElement('a');
@@ -649,19 +687,16 @@
             showToast("图片已保存，快去分享吧！");
         });
         
-        // 复制邀请链接
         document.getElementById("copyLinkBtn")?.addEventListener("click", () => {
             const shareUrl = window.location.href.split('?')[0] + '?invite=' + inviteCode;
             navigator.clipboard.writeText(shareUrl);
             showToast("邀请链接已复制！分享给朋友，双方各得3天免费试用");
         });
         
-        // 微信分享指引
         document.getElementById("wechatShareHint")?.addEventListener("click", () => {
             alert("微信分享方法：\n1. 点击「保存图片分享」保存周报图\n2. 长按图片保存到手机\n3. 打开微信，发朋友圈或发给朋友\n4. 或者复制邀请链接发给好友，对方打开即可试用");
         });
         
-        // 历史面板
         document.getElementById("historyBtn")?.addEventListener("click", () => {
             const panel = document.getElementById("historyPanel");
             if (panel.style.display === "none") {
@@ -674,7 +709,6 @@
                         persist();
                         showToast("本周目标已更新");
                         panel.innerHTML = renderHistoryModal();
-                        // 重新绑定
                         document.getElementById("editGoalBtn")?.addEventListener("click", arguments.callee);
                     }
                 });
@@ -683,12 +717,10 @@
             }
         });
         
-        // 重置
         document.getElementById("resetAllBtn")?.addEventListener("click",()=>{
             if(confirm("重置所有数据？此操作不可恢复。")) { localStorage.removeItem(STORAGE_KEY); location.reload(); }
         });
         
-        // 行为映射
         document.querySelectorAll('.addMapping').forEach(btn => {
             btn.onclick = () => {
                 const idx = parseInt(btn.dataset.idx);
@@ -707,7 +739,6 @@
             };
         });
         
-        // 预设按钮
         document.querySelectorAll('.presetBtn').forEach(btn => {
             btn.onclick = () => {
                 const p = btn.dataset.preset;
@@ -720,7 +751,6 @@
         });
     }
     
-    // 启动
     handleInvite();
     if (sessionStorage.getItem("paid") === "true" || (sessionStorage.getItem("trial_expiry") && parseInt(sessionStorage.getItem("trial_expiry")) > Date.now())) {
         isAuthenticated = true;
